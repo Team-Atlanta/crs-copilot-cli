@@ -1,0 +1,159 @@
+# crs-copilot-cli
+
+A [CRS](https://github.com/oss-crs) (Cyber Reasoning System) that uses [GitHub Copilot CLI](https://github.com/github/copilot-cli) to autonomously find and patch vulnerabilities in open-source projects.
+
+Given proof-of-vulnerability (POV) inputs that crash a target binary, the agent analyzes the crashes, edits source code, builds, tests, iterates, and submits a verified patch — all autonomously.
+
+## How it works
+
+```
+POV files → reproduce crashes → Copilot CLI agent → .diff patch
+                                       ↕
+                                 libCRS (build & test via builder sidecar)
+```
+
+1. **`run_patcher`** scans for POV files (all present before container starts) and reproduces all crashes against the unpatched binary.
+2. All POVs are batched as variants of the same vulnerability and handed to the **agent** (selected via `CRS_AGENT` env var) in a single session.
+3. The agent autonomously analyzes the vulnerability, edits source, and uses **libCRS** tools to build and test patches through a builder sidecar container — verifying against all POV variants.
+4. A verified `.diff` is written to `/patches/`, where a daemon auto-submits it.
+
+The agent is language-agnostic — it edits source and generates diffs while the builder sidecar handles compilation. The sanitizer type (address, memory, undefined) is passed to the agent for context.
+
+## Project structure
+
+```
+patcher.py             # Patcher module: scan POVs → agent
+pyproject.toml         # Package config (run_patcher entry point)
+bin/
+  compile_target       # Builder phase: compiles the target project
+agents/
+  copilot_cli.py       # Copilot CLI agent (default)
+  copilot_cli.md       # AGENTS.md template with libCRS tool docs
+  template.py          # Stub for creating new agents
+oss-crs/
+  crs.yaml             # CRS metadata (supported languages, models, etc.)
+  example-compose.yaml # Example crs-compose configuration
+  base.Dockerfile      # Base image: Ubuntu + Node.js + Copilot CLI + Python
+  builder.Dockerfile   # Build phase image
+  patcher.Dockerfile   # Run phase image
+  docker-bake.hcl      # Docker Bake config for the base image
+  sample-litellm-config.yaml  # LiteLLM proxy config template
+```
+
+## Prerequisites
+
+- **[oss-crs](https://github.com/oss-crs/oss-crs)** — the CRS framework (`crs-compose` CLI)
+
+Builder sidecars for incremental builds are declared in `oss-crs/crs.yaml` (`snapshot: true` / `run_snapshot: true`) and handled automatically by the framework — no separate builder setup is needed.
+
+## Quick start
+
+### 1. Configure `crs-compose.yaml`
+
+Copy `oss-crs/example-compose.yaml` and update the paths:
+
+```yaml
+crs-copilot-cli:
+  source:
+    local_path: /path/to/crs-copilot-cli
+  cpuset: "2-7"
+  memory: "16G"
+  llm_budget: 10
+  additional_env:
+    CRS_AGENT: copilot_cli
+    COPILOT_MODEL: claude-sonnet-4.5
+
+llm_config:
+  litellm_config: /path/to/sample-litellm-config.yaml
+```
+
+### 2. Configure LiteLLM
+
+Copy `oss-crs/sample-litellm-config.yaml` and set your API credentials. The LiteLLM proxy routes Copilot CLI's API calls to the model provider. All models in `required_llms` must be configured.
+
+### 3. Run with oss-crs
+
+```bash
+crs-compose up -f crs-compose.yaml
+```
+
+## Configuration
+
+| Environment variable | Default | Description |
+|---|---|---|
+| `CRS_AGENT` | `copilot_cli` | Agent module name (maps to `agents/<name>.py`) |
+| `COPILOT_MODEL` | `claude-sonnet-4.5` | Model used by Copilot CLI (simplified IDs, see list below) |
+| `AGENT_TIMEOUT` | `0` (no limit) | Agent timeout in seconds (0 = run until budget exhausted) |
+| `BUILDER_MODULE` | `inc-builder-asan` | Builder sidecar module name (must match a `run_snapshot` entry in crs.yaml) |
+
+Copilot CLI uses simplified model IDs (not dated snapshots). Unlike Claude Code which has multiple model env vars (`ANTHROPIC_MODEL`, `CLAUDE_CODE_SUBAGENT_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, etc.), Copilot CLI uses a single `COPILOT_MODEL` env var.
+
+Available models:
+
+**Anthropic:**
+- `claude-sonnet-4.5` (default)
+- `claude-sonnet-4`
+- `claude-sonnet-4.6`
+- `claude-haiku-4.5`
+- `claude-opus-4.1`
+- `claude-opus-4.5`
+- `claude-opus-4.6`
+
+**OpenAI:**
+- `gpt-5`
+- `gpt-5-codex`
+- `gpt-5.1`
+- `gpt-5.1-codex`
+- `gpt-5.1-codex-mini`
+- `gpt-5.1-codex-max`
+- `gpt-5.2`
+- `gpt-5.2-codex`
+- `gpt-5.3-codex`
+
+**Google:**
+- `gemini-2.5-pro`
+- `gemini-3-flash`
+- `gemini-3-pro`
+
+## Runtime behavior
+
+- **Execution**: `copilot -p <prompt> --model <model> --yolo` (non-interactive, full permissions)
+- **Instruction file**: `AGENTS.md` generated per run in the target repo
+- **Config directory**: `~/.copilot/` (default `/root/.copilot/`)
+
+If `OSS_CRS_LLM_API_URL` and `OSS_CRS_LLM_API_KEY` are set, the agent writes a `config.json` in the Copilot home directory pointing at the LiteLLM proxy. Otherwise Copilot CLI uses its default provider.
+
+Debug artifacts:
+- Shared directory: `/root/.copilot` (registered as `copilot-home`)
+- Per-run logs: `/work/agent/copilot_stdout.log`, `/work/agent/copilot_stderr.log`
+
+## Patch validity
+
+A patch is submitted only when it meets all criteria:
+
+1. **Builds** — compiles successfully
+2. **POVs don't crash** — all POV variants pass
+3. **Tests pass** — project test suite passes (or skipped if none exists)
+4. **Semantically correct** — fixes the root cause with a minimal patch
+
+## Adding a new agent
+
+1. Copy `agents/template.py` to `agents/my_agent.py`.
+2. Implement `setup()` and `run()`.
+3. Set `CRS_AGENT=my_agent`.
+
+The agent receives:
+- **source_dir** — clean git repo of the target project
+- **povs** — list of `(pov_path, crash_log)` tuples (variants of the same bug)
+- **harness** — harness name for `run-pov`
+- **patches_dir** — write verified `.diff` files here
+- **work_dir** — scratch space
+- **language** — target language (c, c++, jvm)
+- **sanitizer** — sanitizer type (address, memory, undefined)
+- **builder** — builder sidecar module name (keyword-only, required)
+- **ref_diff** — reference diff showing the bug-introducing change (delta mode only, None in full mode)
+
+The agent has access to three libCRS commands (the `--builder` flag specifies which builder sidecar module to use):
+- `libCRS apply-patch-build <patch.diff> <response_dir> --builder <module>` — build a patch
+- `libCRS run-pov <pov> <response_dir> --harness <h> --build-id <id> --builder <module>` — test against a POV
+- `libCRS run-test <response_dir> --build-id <id> --builder <module>` — run the project's test suite
