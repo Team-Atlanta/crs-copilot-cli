@@ -46,13 +46,36 @@ def setup(source_dir: Path, config: dict) -> None:
     os.environ["IS_SANDBOX"] = "1"
 
     if llm_api_url and llm_api_key:
+        # NOTE: Copilot CLI does NOT currently support custom LLM endpoints.
+        # Unlike Claude Code (ANTHROPIC_BASE_URL) and Codex (config.toml model_providers),
+        # Copilot CLI routes all API calls through GitHub's infrastructure and has no
+        # documented mechanism to redirect to a LiteLLM proxy.
+        # BYOK (Bring Your Own Key) is an enterprise-only feature available in VS Code,
+        # JetBrains, Eclipse, and Xcode — but NOT in the CLI.
+        # See: https://github.com/github/copilot-cli/issues/973
+        #      https://github.com/github/copilot-cli/issues/1170
+        #
+        # We set the auth tokens and write config.json as a best-effort attempt.
+        # If/when Copilot CLI adds BYOK or custom endpoint support, this should
+        # start working. Until then, Copilot CLI uses GitHub's hosted API with
+        # the user's Copilot subscription.
+        logger.warning(
+            "Copilot CLI does not currently support custom LLM endpoints. "
+            "LiteLLM proxy URL (%s) will be written to config.json but may not be used. "
+            "Copilot CLI will route through GitHub's API with the configured auth token.",
+            llm_api_url,
+        )
+
         # Copilot CLI authenticates via tokens (priority: COPILOT_GITHUB_TOKEN
         # > GH_TOKEN > GITHUB_TOKEN). Set all for maximum compatibility.
+        # The token here is repurposed from the CRS framework's LLM API key.
         os.environ["COPILOT_GITHUB_TOKEN"] = llm_api_key
         os.environ["GH_TOKEN"] = llm_api_key
         os.environ["GITHUB_TOKEN"] = llm_api_key
 
-        # Copilot CLI config for LiteLLM proxy routing
+        # Best-effort: write config.json with model selection.
+        # baseUrl is NOT a documented config.json field but is included in case
+        # future Copilot CLI versions support it.
         copilot_config = {
             "model": COPILOT_MODEL,
             "baseUrl": llm_api_url,
@@ -60,11 +83,11 @@ def setup(source_dir: Path, config: dict) -> None:
         config_path = copilot_home / "config.json"
         config_path.write_text(json.dumps(copilot_config, indent=2))
         config_path.chmod(0o600)
-        logger.info("Copilot CLI configured with LiteLLM proxy: %s", llm_api_url)
-        logger.info("COPILOT_MODEL: %s", COPILOT_MODEL)
+        logger.info("Wrote config.json to %s (model=%s)", config_path, COPILOT_MODEL)
     else:
-        logger.warning(
-            "No OSS_CRS_LLM_API_URL/KEY provided. Copilot CLI will use its default provider config."
+        logger.info(
+            "No OSS_CRS_LLM_API_URL/KEY provided. "
+            "Copilot CLI will use GitHub's Copilot API with the user's subscription."
         )
 
     logger.info("Model: %s", COPILOT_MODEL)

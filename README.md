@@ -69,7 +69,7 @@ llm_config:
 
 ### 2. Configure LiteLLM
 
-Copy `oss-crs/sample-litellm-config.yaml` and set your API credentials. The LiteLLM proxy routes Copilot CLI's API calls to the model provider. All models in `required_llms` must be configured.
+Copy `oss-crs/sample-litellm-config.yaml` and set your API credentials. The LiteLLM config is provided for forward-compatibility (see [LLM endpoint limitation](#llm-endpoint-limitation)). Copilot CLI currently uses GitHub's hosted API, so a valid Copilot subscription is required.
 
 ### 3. Run with oss-crs
 
@@ -121,11 +121,25 @@ Available models:
 - **Instruction file**: `AGENTS.md` generated per run in the target repo
 - **Config directory**: `~/.copilot/` (default `/root/.copilot/`)
 
-If `OSS_CRS_LLM_API_URL` and `OSS_CRS_LLM_API_KEY` are set, the agent writes a `config.json` in the Copilot home directory pointing at the LiteLLM proxy. Otherwise Copilot CLI uses its default provider.
-
 Debug artifacts:
 - Shared directory: `/root/.copilot` (registered as `copilot-home`)
 - Per-run logs: `/work/agent/copilot_stdout.log`, `/work/agent/copilot_stderr.log`
+
+## LLM endpoint limitation
+
+**Copilot CLI does not currently support custom LLM endpoints.** Unlike Claude Code (`ANTHROPIC_BASE_URL`) and Codex (`config.toml` model providers), Copilot CLI routes all API calls through GitHub's infrastructure. There is no documented mechanism to redirect requests to a LiteLLM proxy.
+
+- GitHub's enterprise [BYOK](https://github.com/orgs/community/discussions/179954) (Bring Your Own Key) feature works in VS Code, JetBrains, Eclipse, and Xcode — but **not** the CLI.
+- Open feature requests: [#973](https://github.com/github/copilot-cli/issues/973), [#1170](https://github.com/github/copilot-cli/issues/1170)
+
+**What this means for CRS integration:**
+
+The oss-crs framework provides LLM access via `OSS_CRS_LLM_API_URL` / `OSS_CRS_LLM_API_KEY` (a LiteLLM proxy). This CRS writes those values to `config.json` as a best-effort attempt, but Copilot CLI currently ignores them. Instead, Copilot CLI authenticates via the user's GitHub token (`GH_TOKEN`) and uses GitHub's hosted Copilot API.
+
+This means:
+- LLM budget enforcement via LiteLLM is **not** applied — usage is governed by the GitHub Copilot subscription.
+- The `sample-litellm-config.yaml` and `required_llms` in `crs.yaml` are provided for forward-compatibility when BYOK support reaches the CLI.
+- A valid GitHub Copilot subscription (Pro, Business, or Enterprise) with CLI access is required.
 
 ## Patch validity
 
