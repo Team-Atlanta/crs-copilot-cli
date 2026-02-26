@@ -38,15 +38,15 @@ LANGUAGE = os.environ.get("FUZZING_LANGUAGE", "c")
 SANITIZER = os.environ.get("SANITIZER", "address")
 LLM_API_URL = os.environ.get("OSS_CRS_LLM_API_URL", "")
 LLM_API_KEY = os.environ.get("OSS_CRS_LLM_API_KEY", "")
+COPILOT_GITHUB_TOKEN = os.environ.get("COPILOT_GITHUB_TOKEN", "")
+COPILOT_SUBSCRIPTION_TOKEN = os.environ.get("COPILOT_SUBSCRIPTION_TOKEN", "")
 
 # Builder sidecar module name (must match a run_snapshot module in crs.yaml)
 BUILDER_MODULE = os.environ.get("BUILDER_MODULE", "inc-builder-asan")
+SUBMISSION_FLUSH_WAIT_SECS = int(os.environ.get("SUBMISSION_FLUSH_WAIT_SECS", "12"))
 
 # Agent selection
 CRS_AGENT = os.environ.get("CRS_AGENT", "copilot_cli")
-
-# Crash log truncation limit (keep the tail — ASAN summaries are at the end)
-MAX_CRASH_LOG_CHARS = 16384
 
 # Framework directories
 WORK_DIR = Path("/work")
@@ -79,6 +79,13 @@ def _reset_source(source_dir: Path) -> None:
 
 def setup_source() -> Path | None:
     """Download source code and locate the project source directory."""
+    # Ensure safe.directory is set system-wide so git works regardless of
+    # file ownership (downloaded source may have different uid).
+    subprocess.run(
+        ["git", "config", "--system", "--add", "safe.directory", "*"],
+        capture_output=True,
+    )
+
     source_dir = WORK_DIR / "src"
     source_dir.mkdir(parents=True, exist_ok=True)
 
@@ -95,9 +102,25 @@ def setup_source() -> Path | None:
                 project_dir = d
                 break
 
-    if not project_dir.exists() or not (project_dir / ".git").exists():
-        logger.error("No git repo found in %s", source_dir)
-        return None
+    # If still no project_dir, use "repo/" or first subdir as fallback.
+    if not project_dir.exists():
+        subdirs = [d for d in source_dir.iterdir() if d.is_dir()]
+        if subdirs:
+            project_dir = subdirs[0]
+        else:
+            logger.error("No project directory found in %s", source_dir)
+            return None
+
+    # Initialize a git repo if the source doesn't have one.
+    # The agent needs git to generate patches (git add -A && git diff --cached).
+    if not (project_dir / ".git").exists():
+        logger.info("No .git found in %s, initializing git repo", project_dir)
+        subprocess.run(["git", "init"], cwd=project_dir, capture_output=True, timeout=60)
+        subprocess.run(["git", "add", "-A"], cwd=project_dir, capture_output=True, timeout=60)
+        subprocess.run(
+            ["git", "commit", "-m", "initial source"],
+            cwd=project_dir, capture_output=True, timeout=60,
+        )
 
     return project_dir
 
@@ -119,6 +142,21 @@ def wait_for_builder() -> bool:
         return False
 
 
+def _read_response_streams(response_dir: Path, prefix: str) -> str:
+    """Read raw stdout/stderr for a libCRS response directory transparently."""
+    parts: list[str] = []
+    for stream in ("stdout", "stderr"):
+        path = response_dir / f"{prefix}_{stream}.log"
+        if not path.exists():
+            continue
+        text = path.read_text(errors="replace")
+        parts.append(f"===== {path.name} =====\n{text}")
+
+    if not parts:
+        return ""
+    return "\n\n".join(parts)
+
+
 def reproduce_crash(pov_path: Path) -> str:
     """Reproduce crash via builder sidecar using the base (unpatched) build."""
     if not HARNESS:
@@ -131,14 +169,14 @@ def reproduce_crash(pov_path: Path) -> str:
         exit_code = crs.run_pov(pov_path, HARNESS, "base", response_dir, BUILDER_MODULE)
         logger.info("reproduce_crash run-pov exit code: %d", exit_code)
 
-        pov_stderr = response_dir / "pov_stderr.log"
-        if pov_stderr.exists():
-            log = pov_stderr.read_text()
-            if len(log) > MAX_CRASH_LOG_CHARS:
-                log = "[...truncated...]\n" + log[-MAX_CRASH_LOG_CHARS:]
-            return log
+        stream_output = _read_response_streams(response_dir, "pov")
+        if stream_output:
+            return f"run-pov exit code: {exit_code}\n\n{stream_output}"
 
-        return "No crash output captured"
+        return (
+            f"run-pov exit code: {exit_code}\n"
+            f"No POV stdout/stderr logs found in {response_dir}"
+        )
     except Exception as e:
         return f"Error reproducing crash: {e}"
 
@@ -183,7 +221,17 @@ def process_povs(pov_paths: list[Path], source_dir: Path, agent,
 
     patches = list(PATCHES_DIR.glob("*.diff"))
     if patches:
-        logger.info("Patch produced: %s", [p.name for p in patches])
+        patch_names = [p.name for p in patches]
+        if len(patches) > 1:
+            logger.warning(
+                "Multiple patch files detected (%d): %s. Each file in %s is auto-submitted.",
+                len(patches), patch_names, PATCHES_DIR,
+            )
+        logger.warning(
+            "Submission is final: detected patch file(s) %s in %s. Submitted patches cannot be edited or resubmitted.",
+            patch_names, PATCHES_DIR,
+        )
+        logger.info("Patch produced: %s", patch_names)
         return True
 
     logger.warning("Agent did not produce a patch")
@@ -254,6 +302,8 @@ def main():
     agent.setup(source_dir, {
         "llm_api_url": LLM_API_URL,
         "llm_api_key": LLM_API_KEY,
+        "copilot_github_token": COPILOT_GITHUB_TOKEN,
+        "copilot_subscription_token": COPILOT_SUBSCRIPTION_TOKEN,
         "copilot_home": str(copilot_home),
     })
 
@@ -280,7 +330,7 @@ def main():
     if process_povs(pov_files, source_dir, agent, ref_diff=ref_diff):
         # Wait for the submission daemon to flush (batch_time=10s) before exiting.
         logger.info("Patch submitted. Waiting for daemon to flush...")
-        time.sleep(30)
+        time.sleep(SUBMISSION_FLUSH_WAIT_SECS)
 
 
 if __name__ == "__main__":

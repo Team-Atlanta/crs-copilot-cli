@@ -18,7 +18,10 @@ from pathlib import Path
 
 logger = logging.getLogger("agent.copilot_cli")
 
-COPILOT_MODEL = os.environ.get("COPILOT_MODEL", "claude-sonnet-4.5")
+_raw_model = os.environ.get("COPILOT_MODEL", "gpt-5.3-codex").strip()
+COPILOT_MODEL = _raw_model.removeprefix("anthropic/").removeprefix("openai/").removeprefix("google/")
+COPILOT_GITHUB_TOKEN = os.environ.get("COPILOT_GITHUB_TOKEN", "").strip()
+COPILOT_SUBSCRIPTION_TOKEN = os.environ.get("COPILOT_SUBSCRIPTION_TOKEN", "").strip()
 
 # 0 = no timeout (run until budget is exhausted)
 try:
@@ -33,17 +36,42 @@ AGENTS_MD_TEMPLATE = _TEMPLATE_PATH.read_text()
 def setup(source_dir: Path, config: dict) -> None:
     """One-time agent configuration.
 
-    - Sets Copilot CLI env vars (GH_TOKEN, COPILOT_MODEL)
+    - Sets Copilot CLI env vars (COPILOT_MODEL, auth token)
     - Writes copilot config.json for non-interactive autonomous mode
     - Writes AGENTS.md into source_dir with libCRS tool docs + workflow
     """
     llm_api_url = config.get("llm_api_url", "")
     llm_api_key = config.get("llm_api_key", "")
+    github_token = config.get("copilot_github_token", COPILOT_GITHUB_TOKEN)
+    subscription_token = config.get("copilot_subscription_token", COPILOT_SUBSCRIPTION_TOKEN)
     copilot_home = Path(config.get("copilot_home", Path.home() / ".copilot"))
     copilot_home.mkdir(parents=True, exist_ok=True)
 
     # CRS patcher container is intentionally permissive (autonomous mode).
     os.environ["IS_SANDBOX"] = "1"
+
+    token_source = None
+    auth_token = ""
+    if github_token:
+        auth_token = github_token
+        token_source = "COPILOT_GITHUB_TOKEN"
+    elif subscription_token:
+        auth_token = subscription_token
+        token_source = "COPILOT_SUBSCRIPTION_TOKEN"
+    elif llm_api_key:
+        # Backward-compat: OSS_CRS_LLM_API_KEY was previously reused as the Copilot token.
+        auth_token = llm_api_key
+        token_source = "OSS_CRS_LLM_API_KEY"
+
+    if auth_token:
+        # Copilot CLI-native auth env var.
+        os.environ["COPILOT_GITHUB_TOKEN"] = auth_token
+        logger.info("Configured Copilot auth token from %s", token_source)
+    else:
+        logger.warning(
+            "No COPILOT_GITHUB_TOKEN/COPILOT_SUBSCRIPTION_TOKEN set and no OSS_CRS_LLM_API_KEY fallback available. "
+            "Copilot CLI authentication may fail unless token env vars are already present."
+        )
 
     if llm_api_url and llm_api_key:
         # NOTE: Copilot CLI does NOT currently support custom LLM endpoints.
@@ -66,29 +94,24 @@ def setup(source_dir: Path, config: dict) -> None:
             llm_api_url,
         )
 
-        # Copilot CLI authenticates via tokens (priority: COPILOT_GITHUB_TOKEN
-        # > GH_TOKEN > GITHUB_TOKEN). Set all for maximum compatibility.
-        # The token here is repurposed from the CRS framework's LLM API key.
-        os.environ["COPILOT_GITHUB_TOKEN"] = llm_api_key
-        os.environ["GH_TOKEN"] = llm_api_key
-        os.environ["GITHUB_TOKEN"] = llm_api_key
-
-        # Best-effort: write config.json with model selection.
-        # baseUrl is NOT a documented config.json field but is included in case
-        # future Copilot CLI versions support it.
-        copilot_config = {
-            "model": COPILOT_MODEL,
-            "baseUrl": llm_api_url,
-        }
-        config_path = copilot_home / "config.json"
-        config_path.write_text(json.dumps(copilot_config, indent=2))
-        config_path.chmod(0o600)
-        logger.info("Wrote config.json to %s (model=%s)", config_path, COPILOT_MODEL)
     else:
         logger.info(
             "No OSS_CRS_LLM_API_URL/KEY provided. "
-            "Copilot CLI will use GitHub's Copilot API with the user's subscription."
+            "Copilot CLI will use GitHub's Copilot API with the configured subscription token."
         )
+
+    # Write config.json with model selection.
+    # baseUrl is NOT a documented config.json field but is included in case
+    # future Copilot CLI versions support it.
+    copilot_config = {
+        "model": COPILOT_MODEL,
+    }
+    if llm_api_url:
+        copilot_config["baseUrl"] = llm_api_url
+    config_path = copilot_home / "config.json"
+    config_path.write_text(json.dumps(copilot_config, indent=2))
+    config_path.chmod(0o600)
+    logger.info("Wrote config.json to %s (model=%s)", config_path, COPILOT_MODEL)
 
     logger.info("Model: %s", COPILOT_MODEL)
 
@@ -142,9 +165,18 @@ def run(
 
     # Build optional diff section for delta mode
     if ref_diff:
+        # Extract changed file list from diff headers
+        changed_files = [
+            line.split("b/", 1)[1]
+            for line in ref_diff.splitlines()
+            if line.startswith("+++ b/")
+        ]
+        changed_files_str = ", ".join(f"`{f}`" for f in changed_files) if changed_files else "(see diff)"
         diff_section = (
             "\n## Reference Diff (Delta Mode)\n\n"
-            "This diff shows the code change that introduced the vulnerability:\n\n"
+            "This diff shows the change that introduced the vulnerability.\n"
+            "Fix the flaw in this change — don't blindly revert it.\n\n"
+            f"Changed files: {changed_files_str}\n\n"
             f"```diff\n{ref_diff}\n```\n"
         )
     else:
@@ -164,9 +196,15 @@ def run(
     )
     (source_dir / "AGENTS.md").write_text(agents_md)
 
+    target = os.environ.get("OSS_CRS_TARGET", source_dir.name)
+
+    # Build crash log file list for the prompt
+    crash_log_files = " ".join(f"`{work_dir}/crash_log_{i}.txt`" for i in range(len(povs)))
     prompt = (
-        f"Fix the vulnerability. There are {len(povs)} POV variant(s) — "
-        f"crash logs are in {work_dir}/crash_log_*.txt. See AGENTS.md for tools and POV details."
+        f"Fix the {sanitizer} vulnerability in project `{target}` "
+        f"(harness: `{harness}`). {len(povs)} POV variant(s).\n\n"
+        f"Crash logs: {crash_log_files}\n"
+        f"Read AGENTS.md for workflow, tools, and submission instructions."
     )
 
     stdout_log = work_dir / "copilot_stdout.log"
@@ -174,6 +212,7 @@ def run(
 
     cmd = [
         "copilot",
+        "--autopilot",
         "-p",
         prompt,
         "--model",

@@ -25,7 +25,9 @@ crs_run_phase:
     additional_env:
       # Default values. To override, set additional_env in compose yaml.
       CRS_AGENT: copilot_cli
-      # COPILOT_MODEL: claude-sonnet-4.5  # Optional override (default if unset)
+      # COPILOT_MODEL: gpt-5.3-codex  # Optional override (default if unset)
+      # COPILOT_GITHUB_TOKEN: ""  # Optional GitHub token for Copilot CLI auth (recommended)
+      # COPILOT_SUBSCRIPTION_TOKEN: ""  # Compatibility alias; COPILOT_GITHUB_TOKEN is preferred
       # AGENT_TIMEOUT: "0"  # seconds, 0 = no limit (default)
       # BUILDER_MODULE: "inc-builder-asan"  # Builder sidecar module (must match run_snapshot module name)
   inc-builder-asan:
@@ -42,6 +44,7 @@ supported_target:
     - jvm
   sanitizer:
     - address
+    - undefined
   architecture:
     - x86_64
 
@@ -49,7 +52,7 @@ required_llms:
   # Copilot CLI uses simplified model IDs (not dated snapshots).
   # These must be available in the LiteLLM proxy.
   # Anthropic models
-  - claude-sonnet-4.5        # default
+  - claude-sonnet-4.5
   - claude-sonnet-4
   - claude-sonnet-4.6
   - claude-haiku-4.5
@@ -65,7 +68,7 @@ required_llms:
   - gpt-5.1-codex-max
   - gpt-5.2
   - gpt-5.2-codex
-  - gpt-5.3-codex
+  - gpt-5.3-codex            # default
   # Google models
   - gemini-2.5-pro
   - gemini-3-flash

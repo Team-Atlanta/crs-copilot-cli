@@ -29,8 +29,8 @@ RUN install -m 0755 -d /etc/apt/keyrings \
     && apt-get update && apt-get install -y docker-ce-cli \
     && rm -rf /var/lib/apt/lists/*
 
-# Node.js (for Copilot CLI)
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+# Node.js (for Copilot CLI; current docs require Node.js 22+)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 

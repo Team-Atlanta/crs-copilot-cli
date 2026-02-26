@@ -7,17 +7,53 @@ Given proof-of-vulnerability (POV) inputs that crash a target binary, the agent 
 ## How it works
 
 ```
-POV files → reproduce crashes → Copilot CLI agent → .diff patch
-                                       ↕
-                                 libCRS (build & test via builder sidecar)
+┌─────────────────────────────────────────────────────────────────────┐
+│ patcher.py (orchestrator)                                           │
+│                                                                     │
+│  1. Fetch POVs & source         2. Reproduce crashes                │
+│     crs.fetch(POV)                 libCRS run-pov (build-id: base)  │
+│     crs.download(src)              → crash_log_*.txt                │
+│         │                                │                          │
+│         ▼                                ▼                          │
+│  3. Launch Copilot CLI agent with crash logs + AGENTS.md            │
+│     copilot --autopilot -p <prompt> --model <model> --yolo          │
+└─────────┬───────────────────────────────────────────────────────────┘
+          │ -p: prompt with crash log paths
+          ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ Copilot CLI (autonomous agent)                                      │
+│                                                                     │
+│  ┌──────────┐    ┌──────────┐    ┌──────────────┐                   │
+│  │ Analyze  │───▶│   Fix    │───▶│   Verify     │                   │
+│  │          │    │          │    │              │                   │
+│  │ Read     │    │ Edit src │    │ apply-patch  │──▶ Builder        │
+│  │ crash    │    │ git diff │    │   -build     │    sidecar        │
+│  │ logs     │    │          │    │              │◀── build_id       │
+│  └──────────┘    └──────────┘    │ run-pov ────│──▶ Builder        │
+│                                  │   (all POVs)│◀── pov_exit_code  │
+│                       ▲          │ run-test ───│──▶ Builder        │
+│                       │          │             │◀── test_exit_code  │
+│                       │          └──────┬───────┘                   │
+│                       │                 │                           │
+│                       └── retry ◀── fail?                           │
+│                                         │ pass                      │
+│                                         ▼                           │
+│                              Write .diff to /patches/               │
+└─────────────────────────────────────────────────────────────────────┘
+          │
+          ▼
+┌─────────────────────────┐
+│ Submission daemon        │
+│ watches /patches/ ──────▶ oss-crs framework (auto-submit)
+└─────────────────────────┘
 ```
 
-1. **`run_patcher`** scans for POV files (all present before container starts) and reproduces all crashes against the unpatched binary.
-2. All POVs are batched as variants of the same vulnerability and handed to the **agent** (selected via `CRS_AGENT` env var) in a single session.
-3. The agent autonomously analyzes the vulnerability, edits source, and uses **libCRS** tools to build and test patches through a builder sidecar container — verifying against all POV variants.
-4. A verified `.diff` is written to `/patches/`, where a daemon auto-submits it.
+1. **`run_patcher`** fetches POVs and source, reproduces all crashes against the unpatched binary via the builder sidecar.
+2. All POVs are batched as variants of the same vulnerability and handed to **Copilot CLI** in a single session with crash logs and `AGENTS.md` instructions.
+3. The agent autonomously analyzes crash logs, edits source, and uses **libCRS** tools (`apply-patch-build`, `run-pov`, `run-test`) to build and test patches through the builder sidecar — iterating until all POV variants pass.
+4. A verified `.diff` is written to `/patches/`, where a daemon auto-submits it to the oss-crs framework.
 
-The agent is language-agnostic — it edits source and generates diffs while the builder sidecar handles compilation. The sanitizer type (address, memory, undefined) is passed to the agent for context.
+The agent is language-agnostic — it edits source and generates diffs while the builder sidecar handles compilation. The sanitizer type (`address` or `undefined` in this CRS) is passed to the agent for context.
 
 ## Project structure
 
@@ -61,7 +97,8 @@ crs-copilot-cli:
   llm_budget: 10
   additional_env:
     CRS_AGENT: copilot_cli
-    COPILOT_MODEL: claude-sonnet-4.5
+    COPILOT_MODEL: gpt-5.3-codex
+    COPILOT_GITHUB_TOKEN: ${COPILOT_GITHUB_TOKEN}
 
 llm_config:
   litellm_config: /path/to/sample-litellm-config.yaml
@@ -82,7 +119,9 @@ crs-compose up -f crs-compose.yaml
 | Environment variable | Default | Description |
 |---|---|---|
 | `CRS_AGENT` | `copilot_cli` | Agent module name (maps to `agents/<name>.py`) |
-| `COPILOT_MODEL` | `claude-sonnet-4.5` | Model used by Copilot CLI (simplified IDs, see list below) |
+| `COPILOT_MODEL` | `gpt-5.3-codex` | Model used by Copilot CLI (simplified IDs, see list below) |
+| `COPILOT_GITHUB_TOKEN` | unset | GitHub token used for Copilot CLI authentication (recommended) |
+| `COPILOT_SUBSCRIPTION_TOKEN` | unset | Compatibility alias for `COPILOT_GITHUB_TOKEN` |
 | `AGENT_TIMEOUT` | `0` (no limit) | Agent timeout in seconds (0 = run until budget exhausted) |
 | `BUILDER_MODULE` | `inc-builder-asan` | Builder sidecar module name (must match a `run_snapshot` entry in crs.yaml) |
 
@@ -91,7 +130,7 @@ Copilot CLI uses simplified model IDs (not dated snapshots). Unlike Claude Code 
 Available models:
 
 **Anthropic:**
-- `claude-sonnet-4.5` (default)
+- `claude-sonnet-4.5`
 - `claude-sonnet-4`
 - `claude-sonnet-4.6`
 - `claude-haiku-4.5`
@@ -108,7 +147,7 @@ Available models:
 - `gpt-5.1-codex-max`
 - `gpt-5.2`
 - `gpt-5.2-codex`
-- `gpt-5.3-codex`
+- `gpt-5.3-codex` (default)
 
 **Google:**
 - `gemini-2.5-pro`
@@ -117,7 +156,7 @@ Available models:
 
 ## Runtime behavior
 
-- **Execution**: `copilot -p <prompt> --model <model> --yolo` (non-interactive, full permissions)
+- **Execution**: `copilot --autopilot -p <prompt> --model <model> --yolo` (non-interactive, full permissions)
 - **Instruction file**: `AGENTS.md` generated per run in the target repo
 - **Config directory**: `~/.copilot/` (default `/root/.copilot/`)
 
@@ -134,7 +173,12 @@ Debug artifacts:
 
 **What this means for CRS integration:**
 
-The oss-crs framework provides LLM access via `OSS_CRS_LLM_API_URL` / `OSS_CRS_LLM_API_KEY` (a LiteLLM proxy). This CRS writes those values to `config.json` as a best-effort attempt, but Copilot CLI currently ignores them. Instead, Copilot CLI authenticates via the user's GitHub token (`GH_TOKEN`) and uses GitHub's hosted Copilot API.
+The oss-crs framework provides LLM access via `OSS_CRS_LLM_API_URL` / `OSS_CRS_LLM_API_KEY` (a LiteLLM proxy). This CRS writes those values to `config.json` as a best-effort attempt, but Copilot CLI currently ignores them. Instead, Copilot CLI authenticates with a GitHub token and uses GitHub's hosted Copilot API.
+
+Token precedence in this CRS agent:
+- `COPILOT_GITHUB_TOKEN` (recommended explicit env var)
+- `COPILOT_SUBSCRIPTION_TOKEN` (compatibility alias)
+- `OSS_CRS_LLM_API_KEY` (backward-compatible fallback)
 
 This means:
 - LLM budget enforcement via LiteLLM is **not** applied — usage is governed by the GitHub Copilot subscription.
@@ -150,6 +194,8 @@ A patch is submitted only when it meets all criteria:
 3. **Tests pass** — project test suite passes (or skipped if none exists)
 4. **Semantically correct** — fixes the root cause with a minimal patch
 
+Submission is final once a `.diff` is written to `/patches/` and picked up by the watcher. Submitted patches cannot be edited or resubmitted, so complete a full pre-submit review first.
+
 ## Adding a new agent
 
 1. Copy `agents/template.py` to `agents/my_agent.py`.
@@ -163,7 +209,7 @@ The agent receives:
 - **patches_dir** — write verified `.diff` files here
 - **work_dir** — scratch space
 - **language** — target language (c, c++, jvm)
-- **sanitizer** — sanitizer type (address, memory, undefined)
+- **sanitizer** — sanitizer type (`address` or `undefined`)
 - **builder** — builder sidecar module name (keyword-only, required)
 - **ref_diff** — reference diff showing the bug-introducing change (delta mode only, None in full mode)
 
@@ -171,3 +217,8 @@ The agent has access to three libCRS commands (the `--builder` flag specifies wh
 - `libCRS apply-patch-build <patch.diff> <response_dir> --builder <module>` — build a patch
 - `libCRS run-pov <pov> <response_dir> --harness <h> --build-id <id> --builder <module>` — test against a POV
 - `libCRS run-test <response_dir> --build-id <id> --builder <module>` — run the project's test suite
+
+For transparent diagnostics, always inspect response_dir logs:
+- Build: `build.log`, `build_stdout.log`, `build_stderr.log`
+- POV: `pov_stdout.log`, `pov_stderr.log`
+- Test: `test_stdout.log`, `test_stderr.log`
