@@ -246,6 +246,10 @@ def main():
         "Starting patcher: target=%s harness=%s agent=%s snapshot=%s",
         TARGET, HARNESS, CRS_AGENT, SNAPSHOT_IMAGE or "(none)",
     )
+    logger.info(
+        "COPILOT_GITHUB_TOKEN: %s...",
+        COPILOT_GITHUB_TOKEN[:10] if COPILOT_GITHUB_TOKEN else "(not set)",
+    )
 
     if not SNAPSHOT_IMAGE:
         logger.error("OSS_CRS_SNAPSHOT_IMAGE is not set.")
