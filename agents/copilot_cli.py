@@ -40,8 +40,6 @@ def setup(source_dir: Path, config: dict) -> None:
     - Writes copilot config.json for non-interactive autonomous mode
     - Writes AGENTS.md into source_dir with libCRS tool docs + workflow
     """
-    llm_api_url = config.get("llm_api_url", "")
-    llm_api_key = config.get("llm_api_key", "")
     github_token = config.get("copilot_github_token", COPILOT_GITHUB_TOKEN)
     subscription_token = config.get("copilot_subscription_token", COPILOT_SUBSCRIPTION_TOKEN)
     copilot_home = Path(config.get("copilot_home", Path.home() / ".copilot"))
@@ -58,10 +56,6 @@ def setup(source_dir: Path, config: dict) -> None:
     elif subscription_token:
         auth_token = subscription_token
         token_source = "COPILOT_SUBSCRIPTION_TOKEN"
-    elif llm_api_key:
-        # Backward-compat: OSS_CRS_LLM_API_KEY was previously reused as the Copilot token.
-        auth_token = llm_api_key
-        token_source = "OSS_CRS_LLM_API_KEY"
 
     if auth_token:
         # Copilot CLI-native auth env var.
@@ -69,45 +63,14 @@ def setup(source_dir: Path, config: dict) -> None:
         logger.info("Configured Copilot auth token from %s", token_source)
     else:
         logger.warning(
-            "No COPILOT_GITHUB_TOKEN/COPILOT_SUBSCRIPTION_TOKEN set and no OSS_CRS_LLM_API_KEY fallback available. "
+            "No COPILOT_GITHUB_TOKEN or COPILOT_SUBSCRIPTION_TOKEN set. "
             "Copilot CLI authentication may fail unless token env vars are already present."
         )
 
-    if llm_api_url and llm_api_key:
-        # NOTE: Copilot CLI does NOT currently support custom LLM endpoints.
-        # Unlike Claude Code (ANTHROPIC_BASE_URL) and Codex (config.toml model_providers),
-        # Copilot CLI routes all API calls through GitHub's infrastructure and has no
-        # documented mechanism to redirect to a LiteLLM proxy.
-        # BYOK (Bring Your Own Key) is an enterprise-only feature available in VS Code,
-        # JetBrains, Eclipse, and Xcode — but NOT in the CLI.
-        # See: https://github.com/github/copilot-cli/issues/973
-        #      https://github.com/github/copilot-cli/issues/1170
-        #
-        # We set the auth tokens and write config.json as a best-effort attempt.
-        # If/when Copilot CLI adds BYOK or custom endpoint support, this should
-        # start working. Until then, Copilot CLI uses GitHub's hosted API with
-        # the user's Copilot subscription.
-        logger.warning(
-            "Copilot CLI does not currently support custom LLM endpoints. "
-            "LiteLLM proxy URL (%s) will be written to config.json but may not be used. "
-            "Copilot CLI will route through GitHub's API with the configured auth token.",
-            llm_api_url,
-        )
-
-    else:
-        logger.info(
-            "No OSS_CRS_LLM_API_URL/KEY provided. "
-            "Copilot CLI will use GitHub's Copilot API with the configured subscription token."
-        )
-
     # Write config.json with model selection.
-    # baseUrl is NOT a documented config.json field but is included in case
-    # future Copilot CLI versions support it.
     copilot_config = {
         "model": COPILOT_MODEL,
     }
-    if llm_api_url:
-        copilot_config["baseUrl"] = llm_api_url
     config_path = copilot_home / "config.json"
     config_path.write_text(json.dumps(copilot_config, indent=2))
     config_path.chmod(0o600)

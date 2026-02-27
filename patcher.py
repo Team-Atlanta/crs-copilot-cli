@@ -36,8 +36,6 @@ TARGET = os.environ.get("OSS_CRS_TARGET", "")
 HARNESS = os.environ.get("OSS_CRS_TARGET_HARNESS", "")
 LANGUAGE = os.environ.get("FUZZING_LANGUAGE", "c")
 SANITIZER = os.environ.get("SANITIZER", "address")
-LLM_API_URL = os.environ.get("OSS_CRS_LLM_API_URL", "")
-LLM_API_KEY = os.environ.get("OSS_CRS_LLM_API_KEY", "")
 COPILOT_GITHUB_TOKEN = os.environ.get("COPILOT_GITHUB_TOKEN", "")
 COPILOT_SUBSCRIPTION_TOKEN = os.environ.get("COPILOT_SUBSCRIPTION_TOKEN", "")
 
@@ -304,8 +302,6 @@ def main():
     # Load and configure agent
     agent = load_agent(CRS_AGENT)
     agent.setup(source_dir, {
-        "llm_api_url": LLM_API_URL,
-        "llm_api_key": LLM_API_KEY,
         "copilot_github_token": COPILOT_GITHUB_TOKEN,
         "copilot_subscription_token": COPILOT_SUBSCRIPTION_TOKEN,
         "copilot_home": str(copilot_home),

@@ -12,7 +12,7 @@ def setup(source_dir: Path, config: dict) -> None:
     """One-time agent configuration.
 
     Called once at startup with the source directory and a config dict
-    containing at least: llm_api_url, llm_api_key.
+    containing at least: copilot_github_token, copilot_subscription_token, copilot_home.
     """
     raise NotImplementedError("Implement setup() for your agent")
 
