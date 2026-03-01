@@ -173,12 +173,11 @@ Debug artifacts:
 
 **What this means for CRS integration:**
 
-The oss-crs framework provides LLM access via `OSS_CRS_LLM_API_URL` / `OSS_CRS_LLM_API_KEY` (a LiteLLM proxy). This CRS writes those values to `config.json` as a best-effort attempt, but Copilot CLI currently ignores them. Instead, Copilot CLI authenticates with a GitHub token and uses GitHub's hosted Copilot API.
+The oss-crs framework may provide `OSS_CRS_LLM_API_URL` / `OSS_CRS_LLM_API_KEY` (LiteLLM), but Copilot CLI does not consume them. This CRS only writes model selection to `~/.copilot/config.json` and authenticates with GitHub token env vars.
 
 Token precedence in this CRS agent:
 - `COPILOT_GITHUB_TOKEN` (recommended explicit env var)
 - `COPILOT_SUBSCRIPTION_TOKEN` (compatibility alias)
-- `OSS_CRS_LLM_API_KEY` (backward-compatible fallback)
 
 This means:
 - LLM budget enforcement via LiteLLM is **not** applied — usage is governed by the GitHub Copilot subscription.
@@ -204,7 +203,8 @@ Submission is final once a `.diff` is written to `/patches/` and picked up by th
 
 The agent receives:
 - **source_dir** — clean git repo of the target project
-- **povs** — list of `(pov_path, crash_log)` tuples (variants of the same bug)
+- **povs** — list of POV file paths (may be empty)
+- **bug_candidates** — list of static finding files (SARIF/JSON/text; may be empty)
 - **harness** — harness name for `run-pov`
 - **patches_dir** — write verified `.diff` files here
 - **work_dir** — scratch space
