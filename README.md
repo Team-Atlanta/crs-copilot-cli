@@ -101,12 +101,18 @@ crs-copilot-cli:
     COPILOT_GITHUB_TOKEN: ${COPILOT_GITHUB_TOKEN}
 
 llm_config:
-  litellm_config: /path/to/sample-litellm-config.yaml
+  # Optional: uncomment only if you explicitly want OSS-CRS to inject
+  # an external LiteLLM endpoint.
+  # litellm:
+  #   mode: external
+  #   external:
+  #     url_env: EXTERNAL_LITELLM_API_BASE
+  #     key_env: EXTERNAL_LITELLM_API_KEY
 ```
 
-### 2. Configure LiteLLM
+### 2. Optional LiteLLM setup
 
-Copy `oss-crs/sample-litellm-config.yaml` and set your API credentials. The LiteLLM config is provided for forward-compatibility (see [LLM endpoint limitation](#llm-endpoint-limitation)). Copilot CLI currently uses GitHub's hosted API, so a valid Copilot subscription is required.
+By default, Copilot CLI should use `COPILOT_GITHUB_TOKEN` and GitHub-hosted inference directly. If you explicitly want OSS-CRS to inject an external LiteLLM endpoint, uncomment the `llm_config` block and make sure `EXTERNAL_LITELLM_API_BASE` and `EXTERNAL_LITELLM_API_KEY` are set. `oss-crs/sample-litellm-config.yaml` remains available as a reference template.
 
 ### 3. Run with oss-crs
 
@@ -204,10 +210,10 @@ Runtime remains trust-based: the patcher does not re-run final verification. Onc
 
 The agent receives:
 - **source_dir** — clean git repo of the target project
-- **povs** — list of POV file paths (may be empty)
-- **bug_candidates** — list of static finding files (SARIF/JSON/text; may be empty)
-- **diffs** — list of fetched diff file paths (may be empty)
-- **seeds** — list of fetched seed file paths (may be empty)
+- **pov_dir** — boot-time POV input directory (may be empty)
+- **bug_candidate_dir** — boot-time bug-candidate directory (may be empty)
+- **diff_dir** — boot-time diff directory (may be empty)
+- **seed_dir** — boot-time seed directory (may be empty)
 - **harness** — harness name for `run-pov`
 - **patches_dir** — write exactly one final `.diff` here
 - **work_dir** — scratch space
@@ -215,7 +221,7 @@ The agent receives:
 - **sanitizer** — sanitizer type (`address` only)
 - **builder** — builder sidecar module name (keyword-only, required)
 
-All optional inputs are boot-time only. The patcher fetches them once and passes concrete paths to the agent; no new POVs, bug-candidates, diff files, or seeds appear during the run.
+All optional inputs are boot-time only. The patcher fetches them once and passes directory paths to the agent; no new POVs, bug-candidates, diff files, or seeds appear during the run.
 
 The agent has access to three libCRS commands (the `--builder` flag specifies which builder sidecar module to use):
 - `libCRS apply-patch-build <patch.diff> <response_dir> --builder <module>` — build a patch
