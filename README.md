@@ -168,7 +168,7 @@ Available models:
 - **Config directory**: `~/.copilot/` (default `/root/.copilot/`)
 
 Debug artifacts:
-- Shared directory: `/root/.copilot` (registered as `copilot-home`)
+- Log directory: `/root/.copilot` (registered via `register-log-dir`)
 - Per-run logs: `/work/agent/copilot_stdout.log`, `/work/agent/copilot_stderr.log`
 
 ## LLM endpoint limitation

@@ -478,6 +478,9 @@ def main():
     except Exception as e:
         logger.warning("Seed fetch failed: %s — seeds unavailable", e)
 
+    # Register Copilot home as a log directory for post-run analysis.
+    # register-log-dir creates a symlink, so the path must not exist beforehand.
+    # Preserve existing Copilot home and restore it if registration fails.
     copilot_home = Path.home() / ".copilot"
     copilot_home_backup = copilot_home.with_name(".copilot.pre-crs-backup")
     had_existing_copilot_home = copilot_home.exists() or copilot_home.is_symlink()
@@ -488,12 +491,12 @@ def main():
         copilot_home.rename(copilot_home_backup)
 
     try:
-        crs.register_shared_dir(copilot_home, "copilot-home")
-        logger.info("Copilot home shared at %s", copilot_home)
+        crs.register_log_dir(copilot_home)
+        logger.info("Copilot home registered as log dir at %s", copilot_home)
         if copilot_home_backup.exists() or copilot_home_backup.is_symlink():
             logger.info("Preserved previous Copilot home backup at %s", copilot_home_backup)
     except Exception as e:
-        logger.warning("Failed to register copilot-home shared dir: %s", e)
+        logger.warning("Failed to register copilot-home log dir: %s", e)
         if copilot_home.exists() or copilot_home.is_symlink():
             if copilot_home.is_symlink() or copilot_home.is_file():
                 copilot_home.unlink()
