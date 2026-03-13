@@ -34,8 +34,10 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
+ARG COPILOT_CLI_VERSION=0.0.411
+
 # GitHub Copilot CLI (pinned to avoid breaking config schema changes)
-RUN npm install -g @github/copilot@0.0.411
+RUN npm install -g @github/copilot@${COPILOT_CLI_VERSION}
 
 # Git config
 RUN git config --global user.email "crs@oss-crs.dev" \

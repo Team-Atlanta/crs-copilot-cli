@@ -17,6 +17,10 @@ variable "VERSION" {
   default = "latest"
 }
 
+variable "COPILOT_CLI_VERSION" {
+  default = "0.0.411"
+}
+
 function "tags" {
   params = [name]
   result = [
@@ -46,4 +50,7 @@ target "copilot-cli-base" {
   context    = "."
   dockerfile = "oss-crs/base.Dockerfile"
   tags       = tags("copilot-cli-base")
+  args = {
+    COPILOT_CLI_VERSION = COPILOT_CLI_VERSION
+  }
 }

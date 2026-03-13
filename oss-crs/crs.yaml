@@ -25,6 +25,7 @@ crs_run_phase:
     additional_env:
       # Default values. To override, set additional_env in compose yaml.
       CRS_AGENT: copilot_cli
+      # COPILOT_CLI_VERSION: "0.0.411"  # Optional prepare-phase override for base image build
       # COPILOT_MODEL: gpt-5.3-codex  # Optional override (default if unset)
       # COPILOT_GITHUB_TOKEN: ""  # Optional GitHub token for Copilot CLI auth (recommended)
       # COPILOT_SUBSCRIPTION_TOKEN: ""  # Compatibility alias; COPILOT_GITHUB_TOKEN is preferred

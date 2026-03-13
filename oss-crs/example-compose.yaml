@@ -23,6 +23,8 @@ crs-copilot-cli:
   llm_budget: 10                                       # LLM budget in USD
   additional_env:
     # Override CRS defaults here.
+    # Optional prepare-phase CLI pin:
+    #   COPILOT_CLI_VERSION: 0.0.411
     # Copilot CLI uses simplified model IDs (not dated snapshots).
     # Available models (set via COPILOT_MODEL):
     #   Anthropic: claude-sonnet-4.5, claude-sonnet-4, claude-sonnet-4.6,
