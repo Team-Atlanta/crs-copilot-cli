@@ -40,7 +40,9 @@ crs-copilot-cli:
 
 # --- Optional LLM Configuration --------------------------------------------
 # Copilot CLI normally uses GitHub-native authentication via COPILOT_GITHUB_TOKEN.
-# Uncomment only if you explicitly want OSS-CRS to inject an external LiteLLM endpoint.
+# Uncomment only if you want OSS-CRS to validate/inject a framework-level external
+# LiteLLM endpoint; Copilot CLI does not consume OSS_CRS_LLM_API_URL /
+# OSS_CRS_LLM_API_KEY directly today.
 # llm_config:
 #   litellm:
 #     mode: external
