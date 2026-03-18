@@ -11,6 +11,7 @@ to patches_dir.
 import json
 import logging
 import os
+import shutil
 import signal
 import subprocess
 import time
@@ -338,6 +339,13 @@ def run(
     except Exception as e:
         logger.error("Error running Copilot CLI: %s", e)
         return False
+
+    # Remove bulky CLI package dir (~176MB) before log persistence;
+    # only logs/ and session-state/ are useful for post-run analysis.
+    copilot_pkg = Path.home() / ".copilot" / "pkg"
+    if copilot_pkg.is_dir():
+        shutil.rmtree(copilot_pkg, ignore_errors=True)
+        logger.info("Cleaned up Copilot pkg dir to reduce log artifact size")
 
     subprocess.run(
         ["chmod", "-R", "og+rX", str(Path.home() / ".copilot")],
