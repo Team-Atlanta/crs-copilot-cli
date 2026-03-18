@@ -39,7 +39,7 @@ SANITIZER = os.environ.get("SANITIZER", "address")
 COPILOT_GITHUB_TOKEN = os.environ.get("COPILOT_GITHUB_TOKEN", "")
 COPILOT_SUBSCRIPTION_TOKEN = os.environ.get("COPILOT_SUBSCRIPTION_TOKEN", "")
 
-BUILDER_MODULE = os.environ.get("BUILDER_MODULE", "inc-builder-asan")
+BUILDER_MODULE = os.environ.get("BUILDER_MODULE", "inc-builder")
 
 CRS_AGENT = os.environ.get("CRS_AGENT", "copilot_cli")
 
@@ -514,7 +514,18 @@ def main():
                 shutil.rmtree(copilot_home)
         if copilot_home_backup.exists() or copilot_home_backup.is_symlink():
             copilot_home_backup.rename(copilot_home)
-        copilot_home.mkdir(parents=True, exist_ok=True)
+            logger.info("Restored previous Copilot home from backup")
+        else:
+            copilot_home.mkdir(parents=True, exist_ok=True)
+
+    # Register agent work directory as a log dir so stdout/stderr and
+    # libCRS response directories are persisted for post-run analysis.
+    agent_work_dir = WORK_DIR / "agent"
+    try:
+        crs.register_log_dir(agent_work_dir)
+        logger.info("Agent work dir registered as log dir at %s", agent_work_dir)
+    except Exception as e:
+        logger.warning("Failed to register agent work log dir: %s", e)
 
     worktree_dir = setup_source()
     if worktree_dir is None:
@@ -566,7 +577,7 @@ def main():
             "Builder sidecar DNS check failed at startup; continuing and relying on libCRS command-level retries/health waits"
         )
 
-    if process_inputs(pov_files, diff_files, seed_files, source_dir, agent, bug_candidate_files):
+    if process_inputs(pov_files, diff_files, seed_files, worktree_dir, agent, bug_candidate_files):
         logger.info("Patch submitted")
 
 

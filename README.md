@@ -65,6 +65,7 @@ bin/
 agents/
   copilot_cli.py       # Copilot CLI agent (default)
   copilot_cli.md       # AGENTS.md template with libCRS tool docs
+  sections/            # Dynamic AGENTS.md section partial templates
   template.py          # Stub for creating new agents
 oss-crs/
   crs.yaml             # CRS metadata (supported languages, models, etc.)
@@ -129,7 +130,7 @@ crs-compose up -f crs-compose.yaml
 | `COPILOT_GITHUB_TOKEN` | unset | GitHub token used for Copilot CLI authentication (recommended) |
 | `COPILOT_SUBSCRIPTION_TOKEN` | unset | Compatibility alias for `COPILOT_GITHUB_TOKEN` |
 | `AGENT_TIMEOUT` | `0` (no limit) | Agent timeout in seconds (0 = run until budget exhausted) |
-| `BUILDER_MODULE` | `inc-builder-asan` | Builder sidecar module name (must match a `run_snapshot` entry in crs.yaml) |
+| `BUILDER_MODULE` | `inc-builder` | Builder sidecar module name (must match a `run_snapshot` entry in crs.yaml) |
 | `OSS_CRS_SNAPSHOT_IMAGE` | framework-provided | Required snapshot image reference used by patcher startup checks |
 
 Copilot CLI uses simplified model IDs (not dated snapshots). Unlike Claude Code which has multiple model env vars (`ANTHROPIC_MODEL`, `CLAUDE_CODE_SUBAGENT_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, etc.), Copilot CLI uses a single `COPILOT_MODEL` env var.
@@ -209,6 +210,10 @@ Runtime remains trust-based: the patcher does not re-run final verification. Onc
 3. Set `CRS_AGENT=my_agent`.
 
 The agent receives:
+- **setup(source_dir, config)** config keys:
+  - `copilot_github_token` — GitHub token for Copilot CLI auth
+  - `copilot_subscription_token` — compatibility alias
+  - `copilot_home` — path for Copilot CLI state/logs
 - **source_dir** — clean git repo of the target project
 - **pov_dir** — boot-time POV input directory (may be empty)
 - **bug_candidate_dir** — boot-time bug-candidate directory (may be empty)

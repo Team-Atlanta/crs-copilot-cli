@@ -2,7 +2,7 @@
 .git/
 
 # Copilot CLI local settings
-.claude/
+.copilot/
 
 # Python artifacts
 __pycache__/
