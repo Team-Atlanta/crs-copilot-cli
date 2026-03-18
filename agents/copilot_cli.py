@@ -96,6 +96,14 @@ def setup(source_dir: Path, config: dict) -> None:
     - Writes copilot config.json for non-interactive autonomous mode
     - Writes AGENTS.md into source_dir with libCRS tool docs + workflow
     """
+    try:
+        ver = subprocess.run(
+            ["copilot", "--version"], capture_output=True, text=True, timeout=10,
+        )
+        logger.info("Copilot CLI version: %s", ver.stdout.strip() or ver.stderr.strip())
+    except Exception as e:
+        logger.warning("Failed to get Copilot CLI version: %s", e)
+
     github_token = str(config.get("copilot_github_token", COPILOT_GITHUB_TOKEN)).strip()
     subscription_token = str(config.get("copilot_subscription_token", COPILOT_SUBSCRIPTION_TOKEN)).strip()
     copilot_home = Path(config.get("copilot_home", Path.home() / ".copilot"))
