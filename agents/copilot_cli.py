@@ -331,6 +331,11 @@ def run(
         logger.error("Error running Copilot CLI: %s", e)
         return False
 
+    subprocess.run(
+        ["chmod", "-R", "og+rX", str(Path.home() / ".copilot")],
+        capture_output=True,
+    )
+
     if proc.returncode != 0:
         logger.warning("Copilot CLI failed (rc=%d), see %s", proc.returncode, stderr_log)
 

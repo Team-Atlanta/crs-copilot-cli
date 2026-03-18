@@ -42,6 +42,11 @@ def test_run_invokes_copilot_with_correct_flags(monkeypatch, tmp_path: Path) -> 
     monkeypatch.setattr(copilot_cli, "AGENT_TIMEOUT", 0)
     monkeypatch.setattr(copilot_cli, "_snapshot_patch_state", lambda patches_dir: {})
     monkeypatch.setattr(copilot_cli, "_changed_patches", lambda before, patches_dir: [])
+    monkeypatch.setattr(
+        copilot_cli.subprocess,
+        "run",
+        lambda *args, **kwargs: type("R", (), {"returncode": 0, "stderr": b""})(),
+    )
 
     popen_calls: list[list[str]] = []
 
