@@ -18,7 +18,7 @@ variable "VERSION" {
 }
 
 variable "COPILOT_CLI_VERSION" {
-  default = "0.0.411"
+  default = "1.0.28"
 }
 
 function "tags" {
