@@ -11,7 +11,7 @@
 ARG target_base_image
 ARG crs_version
 
-FROM copilot-cli-base
+FROM copilot-cli-base:cli-0.0.341
 
 # Install libCRS (CLI + Python package)
 COPY --from=libcrs . /libCRS

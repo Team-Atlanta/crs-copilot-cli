@@ -14,19 +14,18 @@ variable "REGISTRY" {
 }
 
 variable "VERSION" {
-  default = "latest"
+  default = "cli-0.0.341"
 }
 
 variable "COPILOT_CLI_VERSION" {
-  default = "1.0.28"
+  default = "0.0.341"
 }
 
 function "tags" {
   params = [name]
   result = [
     "${REGISTRY}/${name}:${VERSION}",
-    "${REGISTRY}/${name}:latest",
-    "${name}:latest"
+    "${name}:${VERSION}"
   ]
 }
 
